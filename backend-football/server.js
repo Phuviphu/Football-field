@@ -1,4 +1,3 @@
-// File: backend-football/server.js
 const express = require('express');
 const sql = require('mssql');
 const cors = require('cors');
@@ -10,7 +9,7 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
-// Cấu hình kết nối SQL
+// Database Configuration
 const dbConfig = {
     user: process.env.DB_USER,
     password: process.env.DB_PWD,
@@ -19,14 +18,9 @@ const dbConfig = {
     options: { encrypt: false, trustServerCertificate: true }
 };
 
-// --- 1. ROUTE CHÀO MỪNG (Để hết lỗi Cannot GET /) ---
-app.get('/', (req, res) => {
-    res.send('<h1>⚽ Server Sân Bóng FuFu đang chạy ngon lành! 🚀</h1>');
-});
+app.get('/', (req, res) => res.send('<h1>⚽ Server Sân Bóng FuFu đang chạy ngon lành! 🚀</h1>'));
 
-// --- 2. CÁC API CHÍNH ---
-
-// API: Lấy danh sách sân
+// --- 1. GET ALL FIELDS ---
 app.get('/api/sanbong', async (req, res) => {
     try {
         const pool = await sql.connect(dbConfig);
@@ -35,7 +29,99 @@ app.get('/api/sanbong', async (req, res) => {
     } catch (err) { res.status(500).send(err.message); }
 });
 
-// API: Thêm sân mới (Admin)
+// --- 2. GET BOOKING LIST FOR ADMIN (MỚI) ---
+app.get('/api/bookings-list', async (req, res) => {
+    try {
+        const pool = await sql.connect(dbConfig);
+        const query = `
+            SELECT 
+                ld.*, 
+                sb.TenSan, 
+                kh.FullName AS KhachHangName,
+                kh.Phone AS KhachHangPhone
+            FROM LichDat ld
+            JOIN SanBong sb ON ld.SanID = sb.SanID
+            JOIN KhachHang kh ON ld.KhachHangID = kh.KhachHangID
+            ORDER BY ld.NgayDat DESC, ld.GioBatDau DESC
+        `;
+        const result = await pool.request().query(query);
+        res.json(result.recordset);
+    } catch (err) { res.status(500).send(err.message); }
+});
+
+
+// --- 3. CHECK AVAILABILITY ---
+app.get('/api/check-trung-gio', async (req, res) => {
+    try {
+        const { sanId, ngay, loaiSan } = req.query;
+        const pool = await sql.connect(dbConfig);
+        
+        const query = `
+            SELECT 
+                LEFT(CAST(GioBatDau AS VARCHAR), 5) as start, 
+                LEFT(CAST(GioKetThuc AS VARCHAR), 5) as endTime
+            FROM LichDat 
+            WHERE SanID = @SanID 
+            AND NgayDat = @Ngay 
+            AND LoaiSan = @LoaiSan 
+            AND TinhTrang != N'Đã hủy'
+        `;
+        
+        const result = await pool.request()
+            .input('SanID', sql.Int, sanId)
+            .input('Ngay', sql.Date, ngay)
+            .input('LoaiSan', sql.NVarChar, loaiSan)
+            .query(query);
+
+        const busySlots = result.recordset.map(item => ({
+            start: item.start,
+            end: item.endTime
+        }));
+        
+        res.json(busySlots);
+    } catch (err) { res.status(500).send(err.message); }
+});
+
+// --- 4. CREATE BOOKING (FIXED) ---
+app.post('/api/dat-san', async (req, res) => {
+    try {
+        const { SanID, NgayDat, GioBatDau, GioKetThuc, TenKhach, SDT, LoaiSan } = req.body;
+        const pool = await sql.connect(dbConfig);
+
+        // Find or Create Customer
+        let khID;
+        const khCheck = await pool.request().input('Phone', sql.VarChar, SDT).query("SELECT KhachHangID FROM KhachHang WHERE Phone = @Phone");
+        
+        if (khCheck.recordset.length > 0) {
+            khID = khCheck.recordset[0].KhachHangID;
+        } else {
+            const newKh = await pool.request().input('Fullname', sql.NVarChar, TenKhach).input('Phone', sql.VarChar, SDT)
+                .query("INSERT INTO KhachHang (FullName, Phone) OUTPUT INSERTED.KhachHangID VALUES (@Fullname, @Phone)");
+            khID = newKh.recordset[0].KhachHangID;
+        }
+
+        // Insert Booking
+        await pool.request()
+            .input('KhachHangID', sql.Int, khID)
+            .input('SanID', sql.Int, SanID)
+            .input('NgayDat', sql.Date, NgayDat)
+            .input('GioBatDau', sql.VarChar, GioBatDau)
+            .input('GioKetThuc', sql.VarChar, GioKetThuc)
+            .input('TinhTrang', sql.NVarChar, 'Đã thanh toán')
+            .input('LoaiSan', sql.NVarChar, LoaiSan)
+            .query(`
+                INSERT INTO LichDat (KhachHangID, SanID, NgayDat, GioBatDau, GioKetThuc, TinhTrang, LoaiSan)
+                VALUES (@KhachHangID, @SanID, @NgayDat, @GioBatDau, @GioKetThuc, @TinhTrang, @LoaiSan)
+            `);
+
+        res.json({ message: 'Đặt sân thành công!' });
+    } catch (err) {
+        console.error("SQL Error in POST /dat-san:", err);
+        res.status(500).send(err.message);
+    }
+});
+
+// --- 5. ADMIN CRUD (Khôi phục code Admin) ---
 app.post('/api/sanbong', async (req, res) => {
     try {
         const { TenSan, DiaChi, GiaTheoGio, LoaiSan, HinhAnh, MoTa, TienIch } = req.body;
@@ -56,90 +142,16 @@ app.post('/api/sanbong', async (req, res) => {
     } catch (err) { res.status(500).send(err.message); }
 });
 
-// API: Xóa sân (Admin)
 app.delete('/api/sanbong/:id', async (req, res) => {
     try {
         const { id } = req.params;
         const pool = await sql.connect(dbConfig);
-        // Lưu ý: Cần xóa ràng buộc khóa ngoại ở bảng con trước nếu có (LichDat, DanhGia)
-        // Ở đây xóa tạm bảng cha để demo
+        // Lưu ý: Cần xóa ràng buộc khóa ngoại ở bảng con (LichDat, DanhGia) nếu cần, nhưng do dùng ON DELETE CASCADE nên xóa trực tiếp được
         await pool.request().input('SanID', sql.Int, id).query('DELETE FROM SanBong WHERE SanID = @SanID');
         res.json({ message: 'Xóa sân thành công!' });
     } catch (err) { res.status(500).send(err.message); }
 });
 
-// API: Kiểm tra giờ bận (Fix lỗi múi giờ bằng LEFT CAST)
-app.get('/api/check-trung-gio', async (req, res) => {
-    try {
-        const { sanId, ngay } = req.query;
-        const pool = await sql.connect(dbConfig);
-        
-        // Lấy giờ phút chính xác từ SQL (cắt chuỗi HH:mm)
-        const query = `
-            SELECT 
-                LEFT(CAST(GioBatDau AS VARCHAR), 5) as start, 
-                LEFT(CAST(GioKetThuc AS VARCHAR), 5) as endTime
-            FROM LichDat 
-            WHERE SanID = @SanID 
-            AND NgayDat = @Ngay 
-            AND TinhTrang != N'Đã hủy'
-        `;
-        
-        const result = await pool.request()
-            .input('SanID', sql.Int, sanId)
-            .input('Ngay', sql.Date, ngay)
-            .query(query);
-
-        const busySlots = result.recordset.map(item => ({
-            start: item.start,
-            end: item.endTime
-        }));
-        
-        res.json(busySlots);
-    } catch (err) { res.status(500).send(err.message); }
-});
-
-// API: Đặt sân (Fix lỗi cú pháp chữ N)
-app.post('/api/dat-san', async (req, res) => {
-    try {
-        const { SanID, KhachHangID, NgayDat, GioBatDau, GioKetThuc, TenKhach, SDT } = req.body;
-        const pool = await sql.connect(dbConfig);
-
-        // 1. Xử lý khách hàng (Tìm hoặc Tạo mới)
-        let khID = KhachHangID;
-        const khCheck = await pool.request().input('Phone', sql.VarChar, SDT).query("SELECT KhachHangID FROM KhachHang WHERE Phone = @Phone");
-        
-        if (khCheck.recordset.length > 0) {
-            khID = khCheck.recordset[0].KhachHangID;
-        } else {
-            const newKh = await pool.request()
-                .input('Fullname', sql.NVarChar, TenKhach)
-                .input('Phone', sql.VarChar, SDT)
-                .query("INSERT INTO KhachHang (FullName, Phone) OUTPUT INSERTED.KhachHangID VALUES (@Fullname, @Phone)");
-            khID = newKh.recordset[0].KhachHangID;
-        }
-
-        // 2. Lưu lịch đặt (Đã bỏ chữ N trước biến biến)
-        await pool.request()
-            .input('KhachHangID', sql.Int, khID)
-            .input('SanID', sql.Int, SanID)
-            .input('NgayDat', sql.Date, NgayDat)
-            .input('GioBatDau', sql.VarChar, GioBatDau)
-            .input('GioKetThuc', sql.VarChar, GioKetThuc)
-            .input('TinhTrang', sql.NVarChar, 'Đã thanh toán') // Sửa lỗi ở đây
-            .query(`
-                INSERT INTO LichDat (KhachHangID, SanID, NgayDat, GioBatDau, GioKetThuc, TinhTrang)
-                VALUES (@KhachHangID, @SanID, @NgayDat, @GioBatDau, @GioKetThuc, @TinhTrang)
-            `);
-
-        res.json({ message: 'Đặt sân thành công!' });
-    } catch (err) {
-        console.error(err);
-        res.status(500).send(err.message);
-    }
-});
-
-// Chạy Server
 app.listen(PORT, () => {
     console.log(`🚀 Server đang chạy tại: http://localhost:${PORT}`);
 });
