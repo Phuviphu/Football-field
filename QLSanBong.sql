@@ -101,11 +101,7 @@ SELECT SanID, N'Nguyễn Văn A', N'Sân đẹp, giá hợp lý!', 5 FROM SanBon
 INSERT INTO DanhGia (SanID, NguoiDung, NoiDung, SoSao)
 SELECT SanID, N'Trần Thị B', N'Chủ sân nhiệt tình.', 4 FROM SanBong WHERE TenSan LIKE N'%Quận 6%';
 
--- Khách Hàng Test
-INSERT INTO KhachHang (FullName, Phone, Email, PasswordHash, DiaChi)
-VALUES (N'Khách Hàng Test', '0999999999', 'test@fufu.com', '123', N'TP.HCM');
-
--- Lịch Đặt Mẫu (Để test chức năng chặn giờ Sân 5)
+-- Lịch Đặt Mẫu (test chức năng chặn giờ Sân 5)
 INSERT INTO LichDat (KhachHangID, SanID, NgayDat, GioBatDau, GioKetThuc, TinhTrang, LoaiSan)
 VALUES (
     (SELECT TOP 1 KhachHangID FROM KhachHang WHERE Phone = '0999999999'),
@@ -120,3 +116,6 @@ VALUES (
 -- Hiển thị kết quả
 SELECT * FROM SanBong;
 SELECT * FROM LichDat;
+SELECT * FROM KhachHang;
+
+delete from KhachHang where KhachHangID = 1;
