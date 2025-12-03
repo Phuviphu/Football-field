@@ -118,4 +118,25 @@ SELECT * FROM SanBong;
 SELECT * FROM LichDat;
 SELECT * FROM KhachHang;
 
-delete from KhachHang where KhachHangID = 1;
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'TinNhan')
+BEGIN
+    CREATE TABLE TinNhan (
+        MessageID INT IDENTITY(1,1) PRIMARY KEY,
+        KhachHangID INT, -- Null nếu là tin nhắn hệ thống hoặc khách vãng lai (nhưng ở đây mình bắt buộc login)
+        NoiDung NVARCHAR(MAX),
+        IsAdminSender BIT DEFAULT 0, -- 0: Khách gửi, 1: Admin gửi
+        ThoiGian DATETIME DEFAULT GETDATE(),
+        FOREIGN KEY (KhachHangID) REFERENCES KhachHang(KhachHangID) ON DELETE CASCADE
+    );
+END
+GO
+
+-- 1. Trạng thái đã xem vào bảng Tin Nhắn
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'TinNhan') AND name = 'IsRead')
+BEGIN
+    ALTER TABLE TinNhan ADD IsRead BIT DEFAULT 0; -- 0: Chưa xem, 1: Đã xem
+END
+GO
+
+-- 2. Cập nhật các tin cũ thành đã xem để không bị báo ảo
+UPDATE TinNhan SET IsRead = 1;
