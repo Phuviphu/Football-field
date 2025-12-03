@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, MapPin, Calendar, Clock, Star, Menu, X, User, LogIn, Phone, CreditCard, Filter, History, RefreshCw, ArrowLeft, Trash2, Plus, AlertCircle, Users, Send, MessageSquare, BarChart2, LayoutDashboard, FileText, Settings, Gift, Home, Edit } from 'lucide-react';
+import { Search, MapPin, Calendar, Clock, Star, Menu, X, User, LogIn, Phone, CreditCard, Filter, History, RefreshCw, ArrowLeft, Trash2, Plus, AlertCircle, Users, Send, MessageSquare, BarChart2, LayoutDashboard, FileText, Settings, Gift, Home, Edit, Lock } from 'lucide-react';
 
 
-// --- HÀM LOGIC TÍNH TOÁN ---
+// --- LOGIC TÍNH TOÁN & KIỂM TRA ---
 const calculateComplexPrice = (dateStr, startStr, endStr, fieldType) => {
     if (!startStr || !endStr || !dateStr) return 0;
 
@@ -37,7 +37,6 @@ const calculateComplexPrice = (dateStr, startStr, endStr, fieldType) => {
     }
 
     if (fieldType === 'Sân 7') total += totalHours * 50000;
-
     if (new Date(dateStr).getDate() === 14) total = total * 0.9;
 
     return total;
@@ -64,6 +63,7 @@ const checkConflict = (startStr, endStr, busySlots) => {
 
 const checkPastTimeConflict = (bookingDateStr, startTimeStr) => {
     if (!startTimeStr) return false;
+
     const today = new Date().toISOString().split('T')[0];
     if (bookingDateStr !== today) return false;
 
@@ -76,9 +76,7 @@ const checkPastTimeConflict = (bookingDateStr, startTimeStr) => {
     return false;
 };
 
-
-// --- CÁC COMPONENT NHỎ ---
-// --- Nút Chat Trôi Nổi ---
+// --- CÁC COMPONENT CON (Widgets) ---
 const FloatingChatButton = ({ onClick, unreadCount }) => (
     <button 
         onClick={onClick}
@@ -93,7 +91,6 @@ const FloatingChatButton = ({ onClick, unreadCount }) => (
     </button>
 );
 
-// --- Khung Chat ---
 const ChatBox = ({ currentUser, onClose }) => {
     const [messages, setMessages] = useState([]);
     const [input, setInput] = useState('');
@@ -107,7 +104,6 @@ const ChatBox = ({ currentUser, onClose }) => {
     };
 
     useEffect(() => {
-        // Đánh dấu đã đọc khi mở box
         fetch('http://localhost:5000/api/messages/read', {
             method: 'PUT',
             headers: {'Content-Type': 'application/json'},
@@ -166,7 +162,6 @@ const ChatBox = ({ currentUser, onClose }) => {
     );
 };
 
-// --- Modal Khuyến Mãi ---
 const PromotionModal = ({ onClose }) => (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={onClose}>
         <div className="bg-white p-6 rounded-lg max-w-sm text-center animate-bounce-in" onClick={e=>e.stopPropagation()}>
@@ -179,16 +174,17 @@ const PromotionModal = ({ onClose }) => (
 );
 
 
-// --- CÁC TRANG CHÍNH (PAGES) ---
+// --- CÁC TRANG (PAGES) ---
 const Header = ({ currentView, setCurrentView, isLoggedIn, handleLogout, currentUser, onOpenChat }) => (
   <header className="bg-white shadow-md sticky top-0 z-50">
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
       <div className="flex justify-between items-center py-4">
+        
         <div className="flex items-center space-x-2 cursor-pointer" onClick={() => setCurrentView('home')}>
           <div className="w-10 h-10 bg-green-600 rounded-full flex items-center justify-center"><span className="text-white font-bold text-xl">F</span></div>
           <span className="text-xl font-bold text-green-700">Sân bóng FuFu</span>
         </div>
-        
+
         {currentUser?.phone !== 'admin' && (
             <div className="flex items-center space-x-4 bg-gray-50 px-4 py-1 rounded-full border border-gray-100">
                 {currentView !== 'home' && (<button onClick={() => setCurrentView('home')} className="p-1 text-gray-600 hover:text-green-600 transition" title="Quay lại"><ArrowLeft className="w-5 h-5"/></button>)}
@@ -212,7 +208,12 @@ const Header = ({ currentView, setCurrentView, isLoggedIn, handleLogout, current
         <div className="hidden md:flex items-center space-x-4">
             {isLoggedIn ? (
                 <>
-                    <span className="text-sm font-bold text-green-700">Hi, {currentUser?.name || 'Bạn'}</span>
+                    <span 
+                        className="text-sm font-bold text-green-700 cursor-pointer hover:underline" 
+                        onClick={() => currentUser?.phone !== 'admin' && setCurrentView('profile')}
+                    >
+                        Hi, {currentUser?.name || 'Bạn'}
+                    </span>
                     {currentUser?.phone !== 'admin' && (
                         <button onClick={() => setCurrentView('history')} className="text-gray-700 hover:text-green-600 flex items-center space-x-1">
                             <History className="w-5 h-5" /> <span>Lịch sử</span>
@@ -226,10 +227,83 @@ const Header = ({ currentView, setCurrentView, isLoggedIn, handleLogout, current
                 </button>
             )}
         </div>
+
       </div>
     </div>
   </header>
 );
+
+const UserProfilePage = ({ currentUser, handleLogout }) => {
+    const [activeTab, setActiveTab] = useState('info');
+    const [formData, setFormData] = useState({
+        id: currentUser.id,
+        fullName: currentUser.name,
+        email: currentUser.email || '',
+        address: currentUser.address || ''
+    });
+    const [passData, setPassData] = useState({ oldPassword: '', newPassword: '' });
+
+    const handleUpdateInfo = async () => {
+        try {
+            const res = await fetch('http://localhost:5000/api/user/update-info', {
+                method: 'PUT', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(formData)
+            });
+            if(res.ok) {
+                alert("Cập nhật thành công! Vui lòng đăng nhập lại.");
+                handleLogout();
+            } else alert("Lỗi cập nhật.");
+        } catch(e) { alert("Lỗi Server"); }
+    };
+
+    const handleChangePassword = async () => {
+        try {
+            const res = await fetch('http://localhost:5000/api/user/change-password', {
+                method: 'PUT', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ id: currentUser.id, ...passData })
+            });
+            const data = await res.json();
+            alert(data.message);
+            if(res.ok) setPassData({ oldPassword: '', newPassword: '' });
+        } catch(e) { alert("Lỗi Server"); }
+    };
+
+    return (
+        <div className="min-h-screen bg-gray-50 py-8">
+            <div className="max-w-3xl mx-auto bg-white rounded-lg shadow-lg overflow-hidden">
+                <div className="bg-green-600 px-6 py-8 text-white text-center">
+                    <div className="w-24 h-24 bg-white rounded-full mx-auto flex items-center justify-center text-4xl font-bold text-green-600 mb-3">
+                        {currentUser.name.charAt(0)}
+                    </div>
+                    <h1 className="text-2xl font-bold">{currentUser.name}</h1>
+                    <p>{currentUser.phone}</p>
+                </div>
+
+                <div className="flex border-b">
+                    <button onClick={()=>setActiveTab('info')} className={`flex-1 py-3 font-bold ${activeTab==='info'?'text-green-600 border-b-2 border-green-600':''}`}>Thông tin cá nhân</button>
+                    <button onClick={()=>setActiveTab('password')} className={`flex-1 py-3 font-bold ${activeTab==='password'?'text-green-600 border-b-2 border-green-600':''}`}>Đổi mật khẩu</button>
+                </div>
+
+                <div className="p-8">
+                    {activeTab === 'info' ? (
+                        <div className="space-y-4">
+                            <div><label className="block text-gray-600 mb-1">Họ và tên</label><input className="w-full border p-2 rounded" value={formData.fullName} onChange={e=>setFormData({...formData, fullName: e.target.value})}/></div>
+                            <div><label className="block text-gray-600 mb-1">Email</label><input className="w-full border p-2 rounded" value={formData.email} onChange={e=>setFormData({...formData, email: e.target.value})}/></div>
+                            <div><label className="block text-gray-600 mb-1">Địa chỉ</label><input className="w-full border p-2 rounded" value={formData.address} onChange={e=>setFormData({...formData, address: e.target.value})}/></div>
+                            <button onClick={handleUpdateInfo} className="bg-blue-600 text-white px-6 py-2 rounded font-bold mt-4">Lưu thay đổi</button>
+                        </div>
+                    ) : (
+                        <div className="space-y-4">
+                            <div><label className="block text-gray-600 mb-1">Mật khẩu cũ</label><input type="password" className="w-full border p-2 rounded" value={passData.oldPassword} onChange={e=>setPassData({...passData, oldPassword: e.target.value})}/></div>
+                            <div><label className="block text-gray-600 mb-1">Mật khẩu mới</label><input type="password" className="w-full border p-2 rounded" value={passData.newPassword} onChange={e=>setPassData({...passData, newPassword: e.target.value})}/></div>
+                            <button onClick={handleChangePassword} className="bg-red-600 text-white px-6 py-2 rounded font-bold mt-4">Đổi mật khẩu</button>
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+};
 
 const HomePage = ({ setCurrentView, searchFilters, setSearchFilters, fields, loading, setSelectedField }) => (
   <div className="min-h-screen bg-gray-50">
@@ -361,7 +435,7 @@ const FieldDetailPage = ({ selectedField, setCurrentView, isLoggedIn, searchFilt
 
   const handleSubmitReview = async () => {
       if (!isLoggedIn) { alert("Vui lòng đăng nhập để đánh giá!"); return; }
-      if (!newComment.trim()) { alert("Vui lòng nhập nội dung!"); return; }
+      if (!newComment.trim()) { alert("Nhập nội dung!"); return; }
       try {
           const res = await fetch('http://localhost:5000/api/reviews', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -458,7 +532,7 @@ const FieldDetailPage = ({ selectedField, setCurrentView, isLoggedIn, searchFilt
                                 {(isConflict || isPastConflict) && (
                                     <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative">
                                         <strong className="font-bold">Lỗi!</strong>
-                                        {isPastConflict ? (<span className="block sm:inline"> Giờ này đã trôi qua.</span>) : (<span className="block sm:inline"> Giờ đã bị trùng cho {bookingInfo.fieldType}.</span>)}
+                                        {isPastConflict ? (<span className="block sm:inline"> Giờ đã qua.</span>) : (<span className="block sm:inline"> Giờ đã bị trùng cho {bookingInfo.fieldType}.</span>)}
                                     </div>
                                 )}
 
@@ -528,11 +602,11 @@ const LoginPage = ({ authMode, setAuthMode, handleLogin, setCurrentView }) => {
   const [inputName, setInputName] = useState(''); 
   const [inputEmail, setInputEmail] = useState(''); 
   const [inputAddress, setInputAddress] = useState('');
-  
+
   const handleForgotPassword = async () => {
       if (!inputEmail) { alert("Vui lòng nhập Email đã đăng ký!"); return; }
       try {
-          alert("Đang gửi yêu cầu... Vui lòng đợi trong giây lát.");
+          alert("Đang gửi yêu cầu...");
           const res = await fetch('http://localhost:5000/api/auth/forgot-password', {
               method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: inputEmail })
           });
@@ -546,8 +620,8 @@ const LoginPage = ({ authMode, setAuthMode, handleLogin, setCurrentView }) => {
     <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
       <div className="bg-white p-8 rounded-lg shadow-md w-full max-w-md">
         <div className="text-center mb-8"><div className="w-16 h-16 bg-green-600 rounded-full flex items-center justify-center mx-auto mb-4"><span className="text-white font-bold text-2xl">F</span></div><h1 className="text-2xl font-bold text-gray-800">{authMode === 'login' ? 'Đăng Nhập' : authMode === 'register' ? 'Đăng Ký' : 'Quên Mật Khẩu'}</h1></div>
+        
         <div className="space-y-4">
-          
           {authMode === 'forgot' ? (
               <>
                 <p className="text-sm text-gray-600 mb-2">Nhập email của bạn để nhận mật khẩu mới:</p>
@@ -564,11 +638,14 @@ const LoginPage = ({ authMode, setAuthMode, handleLogin, setCurrentView }) => {
                     </>
                 )}
 
+                {/* Input đăng nhập chấp nhận SĐT hoặc Email */}
                 <input type="text" className="w-full border border-gray-300 rounded-lg px-4 py-2" placeholder={authMode === 'register' ? "Số điện thoại" : "Số điện thoại / Email"} value={inputPhone} onChange={(e) => setInputPhone(e.target.value)} />
+                
                 <input type="password" className="w-full border border-gray-300 rounded-lg px-4 py-2" placeholder="Mật khẩu" value={inputPassword} onChange={(e) => setInputPassword(e.target.value)} />
                 
                 <button onClick={() => {
                     if (inputPhone.trim() === '' || inputPassword.trim() === '') { alert("Vui lòng nhập đầy đủ thông tin!"); return; }
+                    
                     if (authMode === 'register') {
                         if (inputName.trim() === '') { alert("Vui lòng nhập Họ tên!"); return; }
                         handleLogin(inputPhone, inputPassword, inputName, true, inputEmail, inputAddress); 
@@ -578,7 +655,7 @@ const LoginPage = ({ authMode, setAuthMode, handleLogin, setCurrentView }) => {
                 }} className="w-full bg-green-600 text-white py-3 rounded-lg font-semibold hover:bg-green-700">{authMode === 'login' ? 'Đăng nhập' : 'Đăng ký'}</button>
               </>
           )}
-          
+
           <div className="text-center text-sm space-y-2 mt-4">
               {authMode === 'login' && (
                   <>
@@ -637,23 +714,41 @@ const AdminPage = ({ fields, onAddField, onDeleteField, currentUser }) => {
     const [adminMessages, setAdminMessages] = useState([]);
     const [adminInput, setAdminInput] = useState('');
 
-    useEffect(() => {
+    // Tính tổng tin nhắn chưa đọc
+    const totalUnread = chatUsers.reduce((sum, user) => sum + (user.UnreadCount || 0), 0);
+
+    // Hàm fetch dữ liệu chung
+    const fetchData = () => {
         fetch('http://localhost:5000/api/admin/stats').then(res=>res.json()).then(setStats);
         fetch('http://localhost:5000/api/admin/users').then(res=>res.json()).then(setUsers);
         fetch('http://localhost:5000/api/admin/reviews').then(res=>res.json()).then(setReviews);
         fetch('http://localhost:5000/api/bookings-list').then(res=>res.json()).then(setBookings);
+        // Fetch users chat riêng để cập nhật thông báo
         fetch('http://localhost:5000/api/messages').then(res=>res.json()).then(setChatUsers);
+    };
+
+    useEffect(() => {
+        fetchData();
+        // Tự động cập nhật danh sách chat (để hiện thông báo đỏ realtime)
+        const interval = setInterval(() => {
+             fetch('http://localhost:5000/api/messages').then(res=>res.json()).then(setChatUsers);
+        }, 3000);
+        return () => clearInterval(interval);
     }, []);
 
-    // Polling chat
+    // Polling tin nhắn chi tiết khi đang chat
     useEffect(() => {
         if(activeTab === 'chat' && selectedChatUser) {
             const interval = setInterval(async () => {
                 const res = await fetch(`http://localhost:5000/api/messages?userId=${selectedChatUser.KhachHangID}`);
                 if(res.ok) {
                     setAdminMessages(await res.json());
-                    // Mark as read
-                    fetch('http://localhost:5000/api/messages/read', { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ userId: selectedChatUser.KhachHangID, isAdminViewer: true }) });
+                    // Mark as read (Đánh dấu đã xem khi admin đang mở chat với user này)
+                    fetch('http://localhost:5000/api/messages/read', { 
+                        method: 'PUT', 
+                        headers: {'Content-Type': 'application/json'}, 
+                        body: JSON.stringify({ userId: selectedChatUser.KhachHangID, isAdminViewer: true }) 
+                    });
                 }
             }, 3000);
             return () => clearInterval(interval);
@@ -662,15 +757,16 @@ const AdminPage = ({ fields, onAddField, onDeleteField, currentUser }) => {
 
     const sendAdminMessage = async () => {
         if(!adminInput) return;
-        await fetch('http://localhost:5000/api/messages', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ userId: selectedChatUser.KhachHangID, content: adminInput, isAdmin: true }) });
+        await fetch('http://localhost:5000/api/messages', { 
+            method: 'POST', 
+            headers: {'Content-Type': 'application/json'}, 
+            body: JSON.stringify({ userId: selectedChatUser.KhachHangID, content: adminInput, isAdmin: true }) 
+        });
         setAdminInput('');
     };
 
-    // Hàm mở form sửa
     const handleEditClick = (field) => { setIsEditing(true); setCurrentFieldId(field.SanID); setFieldForm(field); setActiveTab('fields'); };
     const resetForm = () => { setIsEditing(false); setCurrentFieldId(null); setFieldForm({ TenSan: '', DiaChi: '', GiaTheoGio: 200000, LoaiSan: 'Sân 5', HinhAnh: '', MoTa: '', TienIch: '' }); };
-
-    // Hàm lưu (Thêm hoặc Sửa)
     const handleSaveField = async () => {
         if (!fieldForm.TenSan || !fieldForm.DiaChi) { alert("Nhập thiếu thông tin!"); return; }
         const url = isEditing ? `http://localhost:5000/api/sanbong/${currentFieldId}` : 'http://localhost:5000/api/sanbong';
@@ -711,8 +807,15 @@ const AdminPage = ({ fields, onAddField, onDeleteField, currentUser }) => {
                     <div className="w-1/3 border-r overflow-y-auto">
                         {chatUsers.map(u => (
                             <div key={u.KhachHangID} onClick={() => setSelectedChatUser(u)} className={`p-4 border-b cursor-pointer hover:bg-gray-50 ${selectedChatUser?.KhachHangID === u.KhachHangID ? 'bg-blue-50' : ''}`}>
-                                <div className="font-bold">{u.FullName}</div>
-                                {u.UnreadCount > 0 && <span className="text-xs bg-red-500 text-white px-2 rounded-full">{u.UnreadCount} mới</span>}
+                                <div className="font-bold flex justify-between items-center">
+                                    {u.FullName}
+                                    {/* Badge thông báo số tin nhắn chưa đọc của từng khách */}
+                                    {u.UnreadCount > 0 && (
+                                        <span className="bg-red-500 text-white text-xs font-bold px-2 py-1 rounded-full animate-pulse">
+                                            {u.UnreadCount}
+                                        </span>
+                                    )}
+                                </div>
                             </div>
                         ))}
                     </div>
@@ -743,8 +846,28 @@ const AdminPage = ({ fields, onAddField, onDeleteField, currentUser }) => {
     return (
         <div className="flex min-h-screen bg-gray-100">
             <div className="w-64 bg-gray-800 text-white flex-shrink-0">
-                <div className="p-4 font-bold text-xl border-b border-gray-700">Admin Panel</div>
-                <nav className="mt-4">{[{id:'stats', icon: BarChart2, label: 'Thống kê'}, {id:'fields', icon: LayoutDashboard, label: 'Quản lý Sân'}, {id:'bookings', icon: Calendar, label: 'Lịch đặt'}, {id:'users', icon: Users, label: 'Khách hàng'}, {id:'reviews', icon: Star, label: 'Đánh giá'}, {id:'chat', icon: MessageSquare, label: 'Tin nhắn'}].map(item => (<button key={item.id} onClick={()=>setActiveTab(item.id)} className={`w-full flex items-center p-4 hover:bg-gray-700 ${activeTab===item.id ? 'bg-gray-700 border-l-4 border-green-500' : ''}`}><item.icon className="w-5 h-5 mr-3"/> {item.label}</button>))}</nav>
+                <div className="p-4 font-bold text-xl border-b border-gray-700">ADMIN</div>
+                <nav className="mt-4">
+                    {/* MENU ITEMS VỚI THÔNG BÁO ĐỎ */}
+                    {[
+                        {id:'stats', icon: BarChart2, label: 'Thống kê'}, 
+                        {id:'fields', icon: LayoutDashboard, label: 'Quản lý Sân'}, 
+                        {id:'bookings', icon: Calendar, label: 'Lịch đặt'}, 
+                        {id:'users', icon: Users, label: 'Khách hàng'}, 
+                        {id:'reviews', icon: Star, label: 'Đánh giá'}, 
+                        {id:'chat', icon: MessageSquare, label: 'Tin nhắn'}
+                    ].map(item => (
+                        <button key={item.id} onClick={()=>setActiveTab(item.id)} className={`w-full flex items-center justify-between p-4 hover:bg-gray-700 ${activeTab===item.id ? 'bg-gray-700 border-l-4 border-green-500' : ''}`}>
+                            <div className="flex items-center"><item.icon className="w-5 h-5 mr-3"/> {item.label}</div>
+                            {/* HIỂN THỊ SỐ ĐỎ NẾU CÓ TIN NHẮN MỚI */}
+                            {item.id === 'chat' && totalUnread > 0 && (
+                                <span className="bg-red-500 text-white text-xs font-bold px-2 py-1 rounded-full animate-pulse">
+                                    {totalUnread}
+                                </span>
+                            )}
+                        </button>
+                    ))}
+                </nav>
             </div>
             <div className="flex-1 p-8 overflow-y-auto">{renderContent()}</div>
         </div>
@@ -776,7 +899,6 @@ const FootballBookingApp = () => {
 
   const fetchFields = async () => { try { const response = await fetch('http://localhost:5000/api/sanbong'); if (!response.ok) throw new Error('Err'); const data = await response.json(); setFields(data); setLoading(false); } catch (error) { console.error("Lỗi data:", error); setLoading(false); } };
   
-  // Fetch unread messages
   const fetchUnread = async () => {
       if(currentUser && currentUser.role !== 'admin') {
           try {
@@ -790,11 +912,7 @@ const FootballBookingApp = () => {
       }
   };
 
-  useEffect(() => {
-      const interval = setInterval(fetchUnread, 3000);
-      return () => clearInterval(interval);
-  }, [currentUser]);
-
+  useEffect(() => { const interval = setInterval(fetchUnread, 3000); return () => clearInterval(interval); }, [currentUser]);
   useEffect(() => { if(selectedField && searchFilters.date) { const fetchBusy = async () => { try { const res = await fetch(`http://localhost:5000/api/check-trung-gio?sanId=${selectedField.SanID}&ngay=${searchFilters.date}&loaiSan=${bookingInfo.fieldType}`); if(res.ok) { const data = await res.json(); setBusySlots(data); } } catch (e) { console.error(e); } }; fetchBusy(); } }, [selectedField, searchFilters.date, bookingInfo.fieldType]); 
   useEffect(() => { const savedUser = localStorage.getItem('currentUser'); if (savedUser) { const user = JSON.parse(savedUser); setCurrentUser(user); setIsLoggedIn(true); if(user.phone === 'admin') setCurrentView('admin'); const savedHistory = localStorage.getItem('bookingHistory_' + user.phone); if (savedHistory) setHistory(JSON.parse(savedHistory)); } fetchFields(); }, []);
 
@@ -810,8 +928,10 @@ const FootballBookingApp = () => {
       } catch (e) { alert(`Lỗi kết nối server.`); console.error(e); return false; }
   };
 
+  // RELOAD KHI LOGOUT
   const handleLogout = () => { localStorage.removeItem('currentUser'); setIsLoggedIn(false); setCurrentUser(null); setHistory([]); setCurrentView('login'); window.location.reload(); };
   
+  // RELOAD KHI ĐẶT SÂN THÀNH CÔNG
   const saveBooking = async () => { try { const res = await fetch('http://localhost:5000/api/dat-san', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ SanID: selectedField.SanID, NgayDat: searchFilters.date, GioBatDau: bookingInfo.startTime, GioKetThuc: bookingInfo.endTime, TenKhach: bookingInfo.name, SDT: bookingInfo.phone, LoaiSan: bookingInfo.fieldType }) }); if(!res.ok) alert("Có lỗi khi lưu vào Database."); } catch(e) { console.error("Lỗi lưu DB", e); } const newBooking = { san: selectedField.TenSan, sanType: bookingInfo.fieldType, ngay: searchFilters.date, gio: `${bookingInfo.startTime} - ${bookingInfo.endTime}`, gia: bookingInfo.totalPrice, nguoiDat: bookingInfo.name, sdt: bookingInfo.phone, timestamp: new Date().toISOString() }; const updatedHistory = [...history, newBooking]; setHistory(updatedHistory); localStorage.setItem('bookingHistory_' + currentUser.phone, JSON.stringify(updatedHistory)); alert('Thanh toán thành công! Sân đã được lưu.'); setCurrentView('home'); setShowQR(false); window.location.reload(); };
   
   const clearHistory = () => { if(window.confirm("Xóa lịch sử?")) { setHistory([]); localStorage.removeItem('bookingHistory_' + currentUser.phone); } };
@@ -833,8 +953,11 @@ const FootballBookingApp = () => {
         {currentView === 'history' && <HistoryPage setCurrentView={setCurrentView} history={history} clearHistory={clearHistory} />}
         {currentView === 'admin' && <AdminPage fields={fields} onAddField={handleAddField} onDeleteField={handleDeleteField} currentUser={currentUser} />}
         {currentView === 'promotion' && <PromotionModal onClose={()=>setCurrentView('home')} />}
+        
+        {/* TRANG CÁ NHÂN */}
+        {currentView === 'profile' && <UserProfilePage currentUser={currentUser} handleLogout={handleLogout} />}
+
       </main>
-      {/* Nút Chat & Chatbox */}
       {isLoggedIn && currentUser?.role !== 'admin' && !showChat && (<FloatingChatButton onClick={() => setShowChat(true)} unreadCount={unreadCount} />)}
       {showChat && <ChatBox currentUser={currentUser} onClose={() => setShowChat(false)} />}
       

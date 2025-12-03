@@ -37,22 +37,29 @@ app.get('/', (req, res) => {
     res.send('<h1>⚽ Server Sân Bóng FuFu đang chạy ngon lành! 🚀</h1>');
 });
 
-
 // --- PHẦN XÁC THỰC (AUTHENTICATION) ---
-
-
-// API: Đăng ký
+// API: Đăng kí
 app.post('/api/auth/register', async (req, res) => {
     try {
         const { phone, password, fullName, email, address } = req.body;
         const pool = await sql.connect(dbConfig);
 
-        const checkUser = await pool.request()
+        // Kiểm tra SĐT
+        const checkPhone = await pool.request()
             .input('Phone', sql.VarChar, phone)
             .query("SELECT KhachHangID FROM KhachHang WHERE Phone = @Phone");
 
-        if (checkUser.recordset.length > 0) {
+        if (checkPhone.recordset.length > 0) {
             return res.status(400).json({ message: 'Số điện thoại này đã được đăng ký!' });
+        }
+
+        // Kiểm tra Email
+        const checkEmail = await pool.request()
+            .input('Email', sql.VarChar, email)
+            .query("SELECT KhachHangID FROM KhachHang WHERE Email = @Email");
+
+        if (checkEmail.recordset.length > 0) {
+            return res.status(400).json({ message: 'Email này đã được đăng ký!' });
         }
 
         const hashedPassword = await bcrypt.hash(password, saltRounds);
@@ -65,7 +72,7 @@ app.post('/api/auth/register', async (req, res) => {
             .input('DiaChi', sql.NVarChar, address)
             .query(`
                 INSERT INTO KhachHang (Phone, PasswordHash, FullName, Email, DiaChi) 
-                OUTPUT INSERTED.KhachHangID, INSERTED.FullName, INSERTED.Phone 
+                OUTPUT INSERTED.KhachHangID, INSERTED.FullName, INSERTED.Phone, INSERTED.Email, INSERTED.DiaChi 
                 VALUES (@Phone, @PasswordHash, @FullName, @Email, @DiaChi)
             `);
 
@@ -78,11 +85,12 @@ app.post('/api/auth/register', async (req, res) => {
     }
 });
 
-// API: Đăng nhập
+// API: Đăng nhập (SĐT hoặc Email)
 app.post('/api/auth/login', async (req, res) => {
     try {
         const { phone, password } = req.body;
 
+        // Check Admin cứng
         if (phone === 'admin' && password === '123') {
             return res.json({
                 message: 'Chào Admin!',
@@ -91,9 +99,12 @@ app.post('/api/auth/login', async (req, res) => {
         }
 
         const pool = await sql.connect(dbConfig);
+        
+        // Tìm user bằng SĐT HOẶC Email
+        // Lưu ý: Biến `phone` ở đây chứa input (có thể là SĐT hoặc Email)
         const result = await pool.request()
-            .input('Phone', sql.VarChar, phone)
-            .query("SELECT * FROM KhachHang WHERE Phone = @Phone");
+            .input('Input', sql.VarChar, phone)
+            .query("SELECT * FROM KhachHang WHERE Phone = @Input OR Email = @Input");
         
         const user = result.recordset[0];
 
@@ -112,6 +123,8 @@ app.post('/api/auth/login', async (req, res) => {
                 id: user.KhachHangID,
                 name: user.FullName,
                 phone: user.Phone,
+                email: user.Email,
+                address: user.DiaChi,
                 role: 'user'
             }
         });
@@ -151,7 +164,6 @@ app.post('/api/auth/forgot-password', async (req, res) => {
 
         transporter.sendMail(mailOptions, (error, info) => {
             if (error) {
-                console.log(error);
                 return res.status(500).json({ message: 'Lỗi gửi mail.' });
             } else {
                 return res.json({ message: 'Mật khẩu mới đã được gửi vào email của bạn!' });
@@ -159,15 +171,65 @@ app.post('/api/auth/forgot-password', async (req, res) => {
         });
 
     } catch (err) {
-        console.error(err);
         res.status(500).json({ message: 'Lỗi server.' });
+    }
+});
+
+// --- PHẦN QUẢN LÝ TÀI KHOẢN (PROFILE) ---
+// API: Cập nhật thông tin cá nhân
+app.put('/api/user/update-info', async (req, res) => {
+    try {
+        const { id, fullName, email, address } = req.body;
+        const pool = await sql.connect(dbConfig);
+
+        await pool.request()
+            .input('ID', sql.Int, id)
+            .input('FullName', sql.NVarChar, fullName)
+            .input('Email', sql.VarChar, email)
+            .input('DiaChi', sql.NVarChar, address)
+            .query("UPDATE KhachHang SET FullName = @FullName, Email = @Email, DiaChi = @DiaChi WHERE KhachHangID = @ID");
+
+        res.json({ message: 'Cập nhật thông tin thành công!' });
+    } catch (err) {
+        res.status(500).send(err.message);
+    }
+});
+
+// API: Đổi mật khẩu
+app.put('/api/user/change-password', async (req, res) => {
+    try {
+        const { id, oldPassword, newPassword } = req.body;
+        const pool = await sql.connect(dbConfig);
+
+        // Lấy mật khẩu cũ để so sánh
+        const userRes = await pool.request()
+            .input('ID', sql.Int, id)
+            .query("SELECT PasswordHash FROM KhachHang WHERE KhachHangID = @ID");
+        
+        const user = userRes.recordset[0];
+        if (!user) return res.status(404).json({ message: 'Người dùng không tồn tại' });
+
+        // Kiểm tra mật khẩu cũ
+        const isMatch = await bcrypt.compare(oldPassword, user.PasswordHash);
+        if (!isMatch) {
+            return res.status(400).json({ message: 'Mật khẩu cũ không đúng!' });
+        }
+
+        // Hash mật khẩu mới và lưu
+        const hashedPassword = await bcrypt.hash(newPassword, saltRounds);
+        await pool.request()
+            .input('ID', sql.Int, id)
+            .input('PasswordHash', sql.VarChar, hashedPassword)
+            .query("UPDATE KhachHang SET PasswordHash = @PasswordHash WHERE KhachHangID = @ID");
+
+        res.json({ message: 'Đổi mật khẩu thành công!' });
+    } catch (err) {
+        res.status(500).send(err.message);
     }
 });
 
 
 // --- PHẦN QUẢN TRỊ (ADMIN) & THỐNG KÊ ---
-
-
 app.get('/api/admin/stats', async (req, res) => {
     try {
         const pool = await sql.connect(dbConfig);
@@ -216,7 +278,6 @@ app.get('/api/messages', async (req, res) => {
         const { userId } = req.query;
         const pool = await sql.connect(dbConfig);
         
-        // Nếu có userId -> Lấy tin nhắn của user đó
         if (userId && userId !== '0') {
             const result = await pool.request()
                 .input('UserID', sql.Int, userId)
@@ -224,7 +285,6 @@ app.get('/api/messages', async (req, res) => {
             return res.json(result.recordset);
         }
         
-        // Nếu không -> Admin lấy danh sách user đã chat
         const result = await pool.request().query(`
             SELECT 
                 kh.KhachHangID, 
@@ -258,7 +318,7 @@ app.put('/api/messages/read', async (req, res) => {
     try {
         const { userId, isAdminViewer } = req.body;
         const pool = await sql.connect(dbConfig);
-        const targetSender = isAdminViewer ? 0 : 1; // Admin xem tin khách (0), Khách xem tin admin (1)
+        const targetSender = isAdminViewer ? 0 : 1; 
         
         await pool.request()
             .input('KhachHangID', sql.Int, userId)
@@ -273,8 +333,6 @@ app.put('/api/messages/read', async (req, res) => {
 
 
 // --- PHẦN SÂN BÓNG & ĐẶT LỊCH ---
-
-
 app.get('/api/sanbong', async (req, res) => {
     try {
         const pool = await sql.connect(dbConfig);
@@ -329,7 +387,6 @@ app.post('/api/dat-san', async (req, res) => {
         const { SanID, NgayDat, GioBatDau, GioKetThuc, TenKhach, SDT, LoaiSan } = req.body;
         const pool = await sql.connect(dbConfig);
 
-        // Tìm hoặc tạo khách hàng
         let khID;
         const khCheck = await pool.request().input('Phone', sql.VarChar, SDT).query("SELECT KhachHangID FROM KhachHang WHERE Phone = @Phone");
         
@@ -362,7 +419,6 @@ app.post('/api/dat-san', async (req, res) => {
     }
 });
 
-// API: Thêm, Sửa, Xóa Sân
 app.post('/api/sanbong', async (req, res) => {
     try {
         const { TenSan, DiaChi, GiaTheoGio, LoaiSan, HinhAnh, MoTa, TienIch } = req.body;
@@ -377,7 +433,9 @@ app.post('/api/sanbong', async (req, res) => {
             .input('TienIch', sql.NVarChar, TienIch)
             .query(`INSERT INTO SanBong (TenSan, DiaChi, GiaTheoGio, LoaiSan, HinhAnh, MoTa, TienIch, ChuSanID, DiemDanhGia, SoLuotReview) VALUES (@TenSan, @DiaChi, @GiaTheoGio, @LoaiSan, @HinhAnh, @MoTa, @TienIch, 1, 5, 0)`);
         res.json({ message: 'Thêm sân thành công!' });
-    } catch (err) { res.status(500).send(err.message); }
+    } catch (err) {
+        res.status(500).send(err.message);
+    }
 });
 
 app.put('/api/sanbong/:id', async (req, res) => {
@@ -396,16 +454,22 @@ app.put('/api/sanbong/:id', async (req, res) => {
             .input('TienIch', sql.NVarChar, TienIch)
             .query(`UPDATE SanBong SET TenSan=@TenSan, DiaChi=@DiaChi, GiaTheoGio=@GiaTheoGio, LoaiSan=@LoaiSan, HinhAnh=@HinhAnh, MoTa=@MoTa, TienIch=@TienIch WHERE SanID=@SanID`);
         res.json({ message: 'Cập nhật thành công!' });
-    } catch (err) { res.status(500).send(err.message); }
+    } catch (err) {
+        res.status(500).send(err.message);
+    }
 });
 
 app.delete('/api/sanbong/:id', async (req, res) => {
     try {
         const { id } = req.params;
         const pool = await sql.connect(dbConfig);
-        await pool.request().input('SanID', sql.Int, id).query('DELETE FROM SanBong WHERE SanID = @SanID');
+        await pool.request()
+            .input('SanID', sql.Int, id)
+            .query('DELETE FROM SanBong WHERE SanID = @SanID');
         res.json({ message: 'Xóa sân thành công!' });
-    } catch (err) { res.status(500).send(err.message); }
+    } catch (err) {
+        res.status(500).send(err.message);
+    }
 });
 
 // API: Review
@@ -413,9 +477,13 @@ app.get('/api/reviews', async (req, res) => {
     try {
         const { sanId } = req.query;
         const pool = await sql.connect(dbConfig);
-        const result = await pool.request().input('SanID', sql.Int, sanId).query('SELECT NguoiDung, NoiDung, SoSao, NgayDanhGia FROM DanhGia WHERE SanID = @SanID ORDER BY NgayDanhGia DESC');
+        const result = await pool.request()
+            .input('SanID', sql.Int, sanId)
+            .query('SELECT NguoiDung, NoiDung, SoSao, NgayDanhGia FROM DanhGia WHERE SanID = @SanID ORDER BY NgayDanhGia DESC');
         res.json(result.recordset);
-    } catch (err) { res.status(500).send(err.message); }
+    } catch (err) {
+        res.status(500).send(err.message);
+    }
 });
 
 app.post('/api/reviews', async (req, res) => {
@@ -442,7 +510,9 @@ app.post('/api/reviews', async (req, res) => {
             await transaction.rollback();
             throw err;
         }
-    } catch (err) { res.status(500).send(err.message); }
+    } catch (err) {
+        res.status(500).send(err.message);
+    }
 });
 
 app.listen(PORT, () => {
